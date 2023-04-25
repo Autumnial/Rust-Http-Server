@@ -15,8 +15,21 @@ pub enum Status{
     NotImplemented,
 }
 
+pub enum Method{
+    GET,
+    POST,
+    PUT,
+    DELETE,
+    OPTIONS,
+    UNKNOWN,
+}
+
+pub struct Route{
+    pub path: String,
+    pub handler: fn(Request) -> Response,
+}
+
 pub struct Response {
-    // idk 
     pub content: String,
     pub content_type: String,
     pub status_code: Status,
@@ -24,17 +37,17 @@ pub struct Response {
 }
 
 pub struct Request {
-    pub method: String,
+    pub method: Method,
     pub path: String,
     pub headers: Vec<String>,
-    pub body: Option<String>,
+    pub body: String,
 }
 
 impl Response{
     
-    pub fn new(content: String) -> ResponseBuilder{
+    pub fn new(content: &str) -> ResponseBuilder{
         ResponseBuilder{
-            content,
+            content: content.to_string(),
             content_type: None,
             status_code: Status::Ok,
             headers: Vec::new()

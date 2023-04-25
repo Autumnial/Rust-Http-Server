@@ -1,37 +1,30 @@
-use rusttp::ContentType;
+use rusttp::{load_file, ContentType, Request, Response};
 
-fn main(){
+fn main() {
+    println!("Listening at http://127.0.0.1:8000");
+
     rusttp::build("127.0.0.1:8000".to_owned())
-    .add_route("/".to_owned(), root)
-    .add_route("/test".to_owned(), test)
-    .launch(); 
+        .get("/".to_owned(), root)
+        .get("/greet".to_owned(), greet)
+        .post("/post".to_owned(), posting)
+        .launch();
 }
 
+fn root() -> Response {
+    let content = "";
 
-fn root() -> (String, ContentType){
-    (String::from(r#"
-                <!DOCTYPE HTML>
-                <html>
-                    <head>
-                        <title>RustTP</title>
-                    </head>
-                    <body>
-                        <h1>Hello World</h1>
-                    </body>"#.to_owned()), 
-                    ContentType::Html)
+    Response::new(content).build()
 }
 
+fn greet() -> Response {
+    let content = "Hello, World!";
 
-fn test () -> (String, ContentType){
-    (String::from(r#"
-                <!DOCTYPE HTML>
-                <html>
-                    <head>
-                        <title>RustTP</title>
-                    </head>
-                    <body>
-                        <h1>Test</h1>
-                    </body>"#.to_owned()), 
-                    ContentType::Html)
+    Response::new(content).build()
 }
 
+fn posting(req: Request) -> Response {
+    let binding = req.body.clone();
+    let content = binding.as_str();
+
+    Response::new(content).build()
+}

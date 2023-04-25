@@ -1,22 +1,42 @@
-use std::{net::{TcpListener, TcpStream}, io::{Read, Write}, collections::HashMap};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{BufRead, BufReader, Read, Write},
+    net::{TcpListener, TcpStream},
+};
 
 pub mod state;
 pub use state::{ContentType, Request, Response, Status};
 
+use crate::state::Method;
+
+pub fn load_file(path: &str) -> Option<String> {
+    let file = File::open(path);
+
+    let file = match file {
+        Ok(file) => file,
+        Err(_) => return None,
+    };
+
+    let file = BufReader::new(file);
+
+    Some(
+        file.lines()
+            .map(|l| l.unwrap())
+            .collect::<Vec<String>>()
+            .join("\n"),
+    )
+}
+
 pub struct Server {
     address: String,
     listener: TcpListener,
-    routes: HashMap<String, fn() -> (String, ContentType)>
-}
-
-pub struct ServerBuilder {
-    address: String,
-    tcp_listener: Option<TcpListener>,
-    routes: HashMap<String, fn() -> (String, ContentType)>
+    get: HashMap<String, fn() -> Response>,
+    post: HashMap<String, fn(Request) -> Response>,
 }
 
 impl Server {
-    pub fn run(mut self) {
+    pub fn run(self) {
         for stream in self.listener.incoming() {
             let stream = stream.unwrap();
             self.handle_connection(stream);
@@ -24,20 +44,18 @@ impl Server {
     }
 
     fn handle_connection(&self, mut stream: TcpStream) {
-
         let mut request_bytes: [u8; 2048] = [0; 2048];
         stream.read(&mut request_bytes).unwrap();
         let request = String::from_utf8_lossy(&request_bytes[..]);
 
         let request = Self::handle_request(request.to_string());
-    
-       let response = self.route(&request);
 
-        
+        let response = self.route(request);
+
         stream.write_all(response.send().as_bytes()).unwrap();
     }
 
-    fn handle_request(request: String) -> Request{
+    fn handle_request(request: String) -> Request {
         let mut lines = request.lines();
         let first_line = lines.next().unwrap();
         let parts: Vec<&str> = first_line.split(" ").collect();
@@ -54,36 +72,58 @@ impl Server {
             headers.push(line.to_string());
         }
 
+        let method = match method {
+            "GET" => Method::GET,
+            "POST" => Method::POST,
+            "PUT" => Method::PUT,
+            "DELETE" => Method::DELETE,
+            "OPTIONS" => Method::OPTIONS,
+            _ => Method::UNKNOWN,
+        };
+
         Request {
-            method: method.to_string(),
+            method,
             path: path.to_string(),
             headers,
-            body: None
+            body: "".to_string(),
         }
     }
 
+    fn route(&self, request: Request) -> Response {
+        match request.method {
+            Method::GET => {
+                let handler = self.get.get(&request.path);
 
-    /// only handles GET requests for now.
-    fn route(&self, request: &Request) -> Response {
-        let content; 
-        let content_type;
+                match handler {
+                    Some(handler) => {
+                        return handler();
+                    }
+                    None => return not_found(),
+                };
+            }
+            Method::POST => {
+                let handler = self.post.get(&request.path);
 
-        for route in &self.routes {
-            if route.0 == &request.path {
-                let out = route.1();
-                content = out.0; 
-                content_type = out.1;
-
-                return Response::new(content)
-                    .set_status_code(Status::Ok)
-                    .set_content_type(content_type)
-                    .build();
+                match handler {
+                    Some(handler) => {
+                        return handler(request);
+                    },
+                    None => {
+                        return not_found();
+                    }
+                };
+            }
+            _ => {
+                return not_found();
             }
         }
-        Response::new("404".to_string())
-            .set_status_code(Status::NotFound)
-            .build()
     }
+}
+
+pub struct ServerBuilder {
+    address: String,
+    get: HashMap<String, fn() -> Response>,
+    post: HashMap<String, fn(Request) -> Response>,
 }
 
 impl ServerBuilder {
@@ -91,15 +131,29 @@ impl ServerBuilder {
         let listener = TcpListener::bind(self.address.clone()).unwrap();
         let server = Server {
             address: self.address,
-            routes: self.routes,
+            get: self.get,
+            post: self.post,
             listener,
         };
 
         server.run();
     }
 
-    pub fn add_route(mut self, path: String, handler: fn() -> (String, ContentType)) -> Self {
-        self.routes.insert(path, handler);
+    pub fn get(
+        mut self,
+        path: String,
+        handler: fn() -> Response,
+    ) -> Self {
+        self.get.insert(path, handler);
+        self
+    }
+
+    pub fn post(
+        mut self,
+        path: String,
+        handler: fn(Request) -> Response,
+        ) -> Self{
+        self.post.insert(path, handler);
         self
     }
 }
@@ -107,7 +161,14 @@ impl ServerBuilder {
 pub fn build(address: String) -> ServerBuilder {
     ServerBuilder {
         address,
-        routes: HashMap::new(),
-        tcp_listener: None,
+        get: HashMap::new(),
+        post: HashMap::new(),
     }
+}
+
+pub fn not_found() -> Response {
+    Response::new("")
+        .set_status_code(Status::NotFound)
+        .set_content_type(ContentType::Text)
+        .build()
 }
